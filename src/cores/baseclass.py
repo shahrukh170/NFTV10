@@ -1,0 +1,492 @@
+import logging
+logging.getLogger("kamene.runtime").setLevel(logging.ERROR)
+from scapy.all import *
+import os
+conf.verb = 0
+import socket
+import sys
+import queue
+import os
+import time
+import threading
+from multiprocessing import Process
+from threading import Thread, Event
+from subprocess import PIPE, Popen
+from netfilterqueue import NetfilterQueue
+import psutil
+import pandas as pd
+import numpy as np 
+from cores.cli import cliArgumentsToConfiguration
+from cores.stores import NetflowsStore, RulesStore
+#from cores.handlers import gatewayFilterPacketsHandler, staticFilterPacketsHandler
+
+frame_styles = {"relief": "groove",
+                "bd": 3, "bg": "blue",
+                "fg": "red", "font": ("Arial", 9, "bold")}
+
+frame_stylesx = {"relief": "groove",
+                "bd": 3, "bg": "blue",
+                "fg": "green", "font": ("Arial", 9, "bold")}
+
+class NetflowMeter(Thread):
+        """This module contains code for:
+
+                1. Packet capturing - Captures the flow from a network interface and extracts header from each packet passing 
+                        through the monitoring interface. 
+                2. Time stamping - Each packet header is marked with the timestamp when the header was captured.
+                3. Sampling - The header is then processed by a sampling-filtering module, where it can be sampled.
+                4. Filtering - The packets are then filtered according to specific requirements (e.g., a specific protocol or IP range).
+
+        A thread is created. Inside the scope of the thread:
+                1. A bridge is created.
+                2. Everytime a packat goes through the bridge:
+                        i. Its header is extracted.
+                        ii. The is marked with the timestamp when the header was captured.
+                        iii. The header is then processed by a sampling-filtering module, where it can be sampled
+                        iv. The packets are then filtered according to specific requirements.
+        """
+
+        def __init__(self, input_q, handler,db_object,db2_object,db3_object):
+                super(NetflowMeter, self).__init__(name="Flow-Meter")
+                self.__input_q = input_q
+                self.__handler = handler
+                self.db_object = db_object
+                self.db2_object = db2_object
+                self.db3_object = db3_object
+                self.total_in_packets = 0
+                self.total_out_packets = 0
+                self.forwarded_packets = 0
+                self.dropped_packets = 0
+                self.normalized_packets = 0
+                self.total_in_packets_array = []
+                self.total_out_packets_array = []
+                self.total_in_packets_secs_array=[]
+                self.total_out_packets_secs_array=[]
+                self.total_out_packets_array = []
+                self.forwarded_packets_array = []
+                self.dropped_packets_array = []
+                self.normalized_packets_array = []
+                self.memory_usage_array = []
+                self.cpu_time_array = []
+                self.uptime_array = []
+                self.data_in_flow = 0
+                self.data_out_flow = 0
+                self.data_in_flow_sec = 0
+                self.data_out_flow_sec = 0
+                self.data_in_flow_array = []
+                self.data_out_flow_array = []
+                self.data_in_flow_sec_array = []
+                self.data_out_flow_sec_array = []
+                
+                
+                self.__MEM_SERIES = []
+                self.__THIS_PROCESS  = psutil.Process(os.getpid())
+                self.__START_TIME = time.time()  
+                self.__INIT_CPU_TIME = None
+                self.__IS_STARTED_EVENT = Event()
+                self.initializes()
+                self.onCaptures()
+                self.start_time = 0
+                #FlowbasedFilter.queueLock.Lock() 
+                
+        def initializes(self):
+                #self.__START_TIME = time.time()
+                self.__MEM_SERIES = [] 
+                self.__RESOURCES_MONITORING_WORKER = Thread(
+                        target=self.scheduledResourcesUsageCheck,
+                        name="Network Resources Monitoring Worker")
+                self.__RESOURCES_MONITORING_WORKER.start()
+                
+        def onCaptures(self):
+                """A callback method. Executed every time a packet is captured
+
+                :param Packet packet a captured network packet 
+                :return: None
+                """
+                #self.__START_TIME    = time.time()
+                if not self.__IS_STARTED_EVENT.isSet():
+                        self.__THIS_PROCESS  = psutil.Process(os.getpid())
+                        self.__INIT_CPU_TIME = sum(self.__THIS_PROCESS.cpu_times())
+                        self.__IS_STARTED_EVENT.set()
+                
+                        
+        def printResourcesUsageStats(self,classObject = None,classObject2 = None ):
+
+                mem_avg  = np.average(self.__MEM_SERIES) if (len(self.__MEM_SERIES)) else 0.0
+                cpu_time = abs(sum(self.__THIS_PROCESS.cpu_times()) - self.__INIT_CPU_TIME) if (
+                        self.__THIS_PROCESS) else 0.0
+                uptime   = abs(time.time() - self.__START_TIME) if (self.__START_TIME) else 0.0
+
+                #print('Average Memory Usage     :   %s MBs' % str(mem_avg))
+                #print(f'CPU Time                 :  %s secs' % str(cpu_time))
+                #print(f'Uptime                   :  %s  secs' % str(uptime))
+                self.memory_usage_array.append(mem_avg/2)
+                self.cpu_time_array.append(cpu_time/2)
+                self.uptime_array.append(uptime)
+                
+                if classObject and classObject2 :
+                        classObject.Mem_Usage.delete(0,'end')
+                        classObject.Mem_Usage.insert(0,round(mem_avg/2,3))
+
+                        classObject.CPU_Usage.delete(0,'end')
+                        classObject.CPU_Usage.insert(0,round(cpu_time/2,3))
+
+                        classObject.up_time.delete(0,'end')
+                        classObject.up_time.insert(0,round(uptime/10,3))
+                        
+                        classObject.packets_out.delete(0,'end')
+                        classObject.packets_out.insert(0,classObject2.packets_out.get())
+
+                        classObject.ax3.plot(range(len(self.memory_usage_array)),self.memory_usage_array,'--g')
+                        classObject.ax3.plot(range(len(self.cpu_time_array)),self.cpu_time_array,'--r')
+                        classObject.ax3.plot(range(len(self.uptime_array)),self.uptime_array,'--b')
+                        classObject.canvas.draw()
+                        classObject.toolbar.update()
+        
+                        
+        def scheduledResourcesUsageCheck(self):
+                self.__IS_STARTED_EVENT.wait()
+                #while True:
+                #time.sleep(2)
+                self.checkMemoryUsage()
+
+        
+        def checkMemoryUsage(self):
+                """Logs resource usage every second.
+                """
+                if self.__THIS_PROCESS:
+                        self.__MEM_SERIES.append(sum(self.__THIS_PROCESS.memory_info()) / 1000000)
+                                                
+
+        def run(self):
+                """Reads packets from the INPUT_Q and processes them one by one.
+                """
+                t = threading.currentThread() 
+                processes = list()
+                print ("Waiting for packets ..... in Daemon Thread :",t.isDaemon())
+                while getattr(t, "do_run", True):
+                           
+                        self.total_in_packets += 1             
+                        #FlowbasedFilter.queueLock.acquire()
+                        try:
+                                tx1 = time.time()
+                                #FlowbasedFilter.queueLock.acquire() 
+                                #if not FlowbasedFilter.__INPUT_Q.empty():
+                                next_packet = self.__input_q.get()
+                                #print ("processing ....")
+                                #thread= Process(args =(next_packet,self.db_object,self,self.db2_object,self.db3_object),target=self.__handler) 
+                                #thread.start()
+                                #processes.append(thread) 
+                                self.__handler(next_packet,self.db_object,self,self.db2_object,self.db3_object)
+                                #FlowbasedFilter.queueLock.release()
+                                                                      
+                                dt = time.time() - tx1  
+                                print("processsing time :",dt)
+                                #if FlowbasedFilter.exitFlag:
+                                #       break
+                                                                
+                        except Exception as e :
+                                #FlowbasedFilter.queueLock.release()
+                                #time.sleep(1)
+                                print("Exception :" + str(e))
+                                pass
+                        finally:
+                                #for process in processes:
+                                #       process.join()
+                                #FlowbasedFilter.queueLock.release()
+                                pass
+
+                print("Stopping Threaded Execution ......")
+                        
+
+class FlowbasedFilter:
+        
+        __INPUT_Q = queue.Queue()
+        __CONF = {}
+        __RESOURCES_MONITORING_WORKER = None
+        __MEM_SERIES = []
+        __START_TIME = 0
+        __INIT_CPU_TIME = None
+        __THIS_PROCESS = None
+        __IS_STARTED_EVENT = Event()
+        queueLock = threading.Lock()
+        threads = []
+        #Notify the threads its time to exit
+        exitFlag = 0
+
+
+
+        @staticmethod
+        def captureAll():
+                nfqueue = NetfilterQueue()
+                try:
+                        nfqueue.bind(1, FlowbasedFilter.onCapture)
+                        nfqueue.run()
+                          
+                except:
+                        pass
+                finally:
+                	nfqueue.unbind()
+
+        @staticmethod
+        def onCapture(packet):
+                """A callback method. Executed every time a packet is captured
+
+                :param Packet packet a captured network packet 
+                :return: None
+                """
+                if not FlowbasedFilter.__IS_STARTED_EVENT.isSet():
+                        FlowbasedFilter.__THIS_PROCESS  = psutil.Process(os.getpid())
+                        FlowbasedFilter.__START_TIME    = time.time()
+                        FlowbasedFilter.__INIT_CPU_TIME = sum(FlowbasedFilter.__THIS_PROCESS.cpu_times())
+                        FlowbasedFilter.__IS_STARTED_EVENT.set()
+
+                FlowbasedFilter.__INPUT_Q.put(packet)
+
+        @staticmethod
+        def scheduledResourcesUsageCheck():
+                FlowbasedFilter.__IS_STARTED_EVENT.wait()
+                #while True:
+                #        time.sleep(2)
+                FlowbasedFilter.checkMemoryUsage()
+
+        @staticmethod
+        def checkMemoryUsage():
+                """Logs resource usage every second.
+                """
+                if FlowbasedFilter.__THIS_PROCESS:
+                        FlowbasedFilter.__MEM_SERIES.append(sum(FlowbasedFilter.__THIS_PROCESS.memory_info()) / 1000000)
+                        
+        @staticmethod
+        def printResourcesUsageStats(classObject = None,classObject2 = None ):
+
+                mem_avg  = np.average(FlowbasedFilter.__MEM_SERIES) if (len(FlowbasedFilter.__MEM_SERIES)) else 0.0
+                cpu_time = (sum(FlowbasedFilter.__THIS_PROCESS.cpu_times()) - FlowbasedFilter.__INIT_CPU_TIME) if (
+                        FlowbasedFilter.__THIS_PROCESS) else 0.0
+                uptime   = (time.time() - FlowbasedFilter.__START_TIME) if (FlowbasedFilter.__START_TIME) else 0.0
+
+                #print('Average Memory Usage     :   %s MBs' % str(mem_avg))
+                #print(f'CPU Time                 :  %s secs' % str(cpu_time))
+                #print(f'Uptime                   :  %s  secs' % str(uptime))
+                
+                if classObject and classObject2 :
+                        classObject.Mem_Usage.delete(0,'end')
+                        classObject.Mem_Usage.insert(0,round(mem_avg/2,3))
+
+                        classObject.CPU_Usage.delete(0,'end')
+                        classObject.CPU_Usage.insert(0,round(cpu_time/2,3))
+
+                        classObject.up_time.delete(0,'end')
+                        classObject.up_time.insert(0,round(uptime/10,3))
+                        
+                        classObject.packets_out.delete(0,'end')
+                        classObject.packets_out.insert(0,'end')
+                        
+                        
+
+        @staticmethod
+        def initialize(args,display,ifacei,ifaceo,label,db_object):
+                """Parses CLI arguments and configures bridge. 
+                """
+                #FlowbasedFilter.__START_TIME = time.time()
+                conf = cliArgumentsToConfiguration(args[1:])
+                FlowbasedFilter.__CONF.update(conf)
+                FlowbasedFilter.configure(display,ifacei,ifaceo,label,db_object)
+                print(conf)
+                #if FlowbasedFilter.__CONF['handler'] == staticFilterPacketsHandler : 
+                try: 
+                        RulesStore.initialize(FlowbasedFilter.__CONF['pbf_rule_numbers'], FlowbasedFilter.__CONF['fbf_rule_numbers'])
+                except:
+                        RulesStore.initialize([],[])
+                        
+                  
+                FlowbasedFilter.__RESOURCES_MONITORING_WORKER = Thread(
+                        target=FlowbasedFilter.scheduledResourcesUsageCheck,
+                        name="Resources Monitoring Worker")
+                FlowbasedFilter.__RESOURCES_MONITORING_WORKER.start()
+
+        @staticmethod
+        def configure(display,iniface,outiface,label,db_object):
+                """Sets up a bridge.
+                """
+                os.system('iptables -I FORWARD -j NFQUEUE --queue-num %s ' % str(1))
+                ingress_ip, egress_ip       = FlowbasedFilter.__CONF['ingress_ip'], FlowbasedFilter.__CONF['egress_ip']
+                ingress_iface, egress_iface = FlowbasedFilter.__CONF['ingress_iface'], FlowbasedFilter.__CONF['egress_iface']
+                if ingress_iface and egress_iface :
+                        iniface.insert(0, ingress_iface)
+                        outiface.insert(0, egress_iface)
+                bridge_ip           = ingress_ip if(ingress_ip < egress_ip) else egress_ip
+
+                #start_cmds = [
+                #        [
+                #                'brctl addbr br0',
+                #                f'brctl addif br0 {ingress_iface} {egress_iface}',
+                #                'brctl stp br0 yes',
+                #                f'ifconfig {ingress_iface} 0.0.0.0',
+                #                f'ifconfig {egress_iface} 0.0.0.0',
+                #                f'ifconfig br0 {bridge_ip} up',
+                #        ],[
+                #                f'iptables -A INPUT -m physdev --physdev-in {ingress_iface} -j NFQUEUE --queue-num 1',
+                #                f'iptables -A INPUT -m physdev --physdev-in {egress_iface} -j NFQUEUE --queue-num 1',
+                #                f'iptables -A FORWARD -m physdev --physdev-in {ingress_iface} -j NFQUEUE --queue-num 1',
+                #                f'iptables -A FORWARD -m physdev --physdev-in {egress_iface} -j NFQUEUE --queue-num 1'
+                #        ]
+                #]
+                start_cmds = [
+                        [
+                                'brctl addbr br0',
+                                'brctl addif br0 %s %s' % (ingress_iface,egress_iface),
+                                'brctl stp br0 yes',
+                                'ifconfig %s 0.0.0.0' % (ingress_iface),
+                                'ifconfig %s 0.0.0.0' % (egress_iface),
+                                'ifconfig br0 %s up' % (bridge_ip),
+                        ],[
+                                'iptables -A INPUT -m physdev --physdev-in %s -j NFQUEUE --queue-num 1' % (ingress_iface),
+                                'iptables -A INPUT -m physdev --physdev-in %s -j NFQUEUE --queue-num 1' % (egress_iface),
+                                'iptables -A FORWARD -m physdev --physdev-in %s -j NFQUEUE --queue-num 1' % (ingress_iface),
+                                'iptables -A FORWARD -m physdev --physdev-in %s -j NFQUEUE --queue-num 1' % (egress_iface)
+                        ]
+                ]
+
+                print('[*] creating a bridge.')
+                        
+                for cmd in start_cmds[0]:
+                        #cmd = f'sudo {cmd}'
+                        cmd = 'sudo %s' % (cmd) 
+                        p = Popen(cmd,shell=True,stdin=PIPE,stderr=PIPE,stdout=PIPE)
+                        if len(p.stderr.read()) > 0:
+                                #print(f'    # {cmd.ljust(85)} [ fail ]')
+                                display.insert('end','%s [fail] \n' % (cmd.ljust(85)),frame_styles)
+                                display.insert('end','ERROR : Cannot Start Fitler !!!!',frame_stylesx)
+                                label.config(bg='red')
+                                db_object.colour.set('red')
+                                return 
+                        else:
+                                #print(f'    # {cmd.ljust(85)} [ success ]')
+                                display.insert('end','%s [success] \n' % (cmd.ljust(85)),frame_styles)
+                                display.insert('end','SUCCESS : Start Fitler Interfaces !!!!',frame_stylesx)
+                                label.config(bg='green')
+                                db_object.colour.set('green')
+
+                print('\n[*] configuring iptables.')
+                display.insert('end','\n[*] configuring iptables. \n')
+                for cmd in start_cmds[1]:
+                        cmd = 'sudo %s' % (cmd)
+                        p = Popen(cmd,shell=True,stdin=PIPE,stderr=PIPE,stdout=PIPE)
+                        if len(p.stderr.read()) > 0:
+                                print('%s [fail] \n' % (cmd.ljust(85)))
+                                display.insert('end','%s [fail] \n' % (cmd.ljust(85)),frame_styles)
+                                display.insert('end','ERROR : Cannot Start Fitler !!!!',frame_stylesx)
+                                label.config(bg='red')
+                                db_object.colour.set('red')
+                                return 
+                        else:
+                                print('%s [success] \n' % (cmd.ljust(85)))
+                                display.insert('end','%s [success] \n' % (cmd.ljust(85)),frame_styles)
+                                display.insert('end','SUCCESS : Start Fitler iptable commands  !!!!',frame_stylesx)
+                                label.config(bg='green')
+                                db_object.colour.set('green')
+
+        @staticmethod
+        def reconfigure(display,iniface,outiface,label,db_object):
+                """Reconfigures the filter.
+                """
+                
+                ingress_ip, egress_ip       = FlowbasedFilter.__CONF['ingress_ip'], FlowbasedFilter.__CONF['egress_ip']
+                ingress_iface, egress_iface = FlowbasedFilter.__CONF['ingress_iface'], FlowbasedFilter.__CONF['egress_iface']
+                bridge_ip           = ingress_ip if(ingress_ip < egress_ip) else egress_ip
+                if ingress_iface and egress_iface :
+                        iniface.insert(0, ingress_iface)
+                        outiface.insert(0, egress_iface)
+                 
+                print("\n[*] restoring interface states.")
+                #exit_cmds = [
+                #        [
+                #                f'brctl delif br0 {ingress_iface} {egress_iface}',
+                #                'ifconfig br0 down',
+                #                'brctl delbr br0',
+                #                f'ifconfig {ingress_iface} {ingress_ip} up',
+                #                f'ifconfig {egress_iface} {egress_ip} up'
+                #        ],[
+                #                f'iptables -D INPUT -m physdev --physdev-in {ingress_iface} -j NFQUEUE --queue-num 1',
+                #                f'iptables -D INPUT -m physdev --physdev-in {egress_iface} -j NFQUEUE --queue-num 1',
+                #                f'iptables -D FORWARD -m physdev --physdev-in {ingress_iface} -j NFQUEUE --queue-num 1',
+                #                f'iptables -D FORWARD -m physdev --physdev-in {egress_iface} -j NFQUEUE --queue-num 1'
+                #        ]
+                #]
+                exit_cmds = [
+                        [
+                                'brctl delif br0 %s %s ' %( ingress_iface,egress_iface),
+                                'ifconfig br0 down',
+                                'brctl delbr br0',
+                                'ifconfig %s %s up' % (ingress_iface,ingress_ip),
+                                'ifconfig %s %s up' % (egress_iface,egress_ip)
+                        ],[
+                                'iptables -D INPUT -m physdev --physdev-in %s -j NFQUEUE --queue-num 1' % (ingress_iface),
+                                'iptables -D INPUT -m physdev --physdev-in %s -j NFQUEUE --queue-num 1' % (egress_iface),
+                                'iptables -D FORWARD -m physdev --physdev-in %s -j NFQUEUE --queue-num 1' % (ingress_iface),
+                                'iptables -D FORWARD -m physdev --physdev-in %s -j NFQUEUE --queue-num 1' % (egress_iface)
+                        ]
+                ]
+
+                for cmd in exit_cmds[0]:
+                        #cmd = f'sudo {cmd}'
+                        cmd = 'sudo %s' % (cmd)
+                        p = Popen(cmd,shell=True,stdin=PIPE,stderr=PIPE,stdout=PIPE)
+                        if len(p.stderr.read()) > 0:
+                                print('%s [fail] \n' % (cmd.ljust(85)))
+                                display.insert('end','%s [fail] \n' % (cmd.ljust(85)) )
+                                display.insert('end','ERROR : Cannot Stop Fitler Interfaces!!!!',frame_styles)
+                                label.config(bg='red')
+                                db_object.colour.set('red')
+                        else:
+                                print('%s [success] \n' % (cmd.ljust(85)))
+                                display.insert('end','%s [success] \n' % (cmd.ljust(85)))
+                                display.insert('end','SUCCESS : Start Fitler Interfaces commands  !!!!',frame_stylesx)
+                                label.config(bg='green')
+                                db_object.colour.set('green')
+
+                print('\n[*] restoring iptables.')
+                display.insert('end','\n[*] restoring iptables.\n')
+                for cmd in exit_cmds[1]:
+                        cmd = 'sudo ' + cmd
+                        p = Popen(cmd,shell=True,stdin=PIPE,stderr=PIPE,stdout=PIPE)
+                        if len(p.stderr.read()) > 0:
+                                print('%s [fail] \n' % (cmd.ljust(85)))
+                                display.insert('end','%s [fail] \n' % (cmd.ljust(85)))
+                                display.insert('end','ERROR : Cannot Stop Fitler iptables!!!!',frame_styles)
+                                label.config(bg='red')
+                                db_object.colour.set('red')
+                        else:
+                                print('%s [success] \n' % (cmd.ljust(85)))
+                                display.insert('end','%s [succcess] \n' % (cmd.ljust(85)))
+                                display.insert('end','SUCCESS : Start Fitler iptable commands  !!!!',frame_stylesx)
+                                label.config(bg='green')
+                                db_object.colour.set('green')
+                os.system('iptables -D FORWARD -j NFQUEUE --queue-num 1')
+                os.system('iptables -t -F') #remove iptables rule
+
+        @staticmethod
+        def run(data,display,ifacei,ifaceo,label,db_object,db2_object,db3_object):
+                """
+                This is the Filter's 'Main' function. Intialization, configuration and processing starts here.
+                """
+
+                #FlowbasedFilter.initialize(data,display,ifacei,ifaceo,label,db3_object)
+		 
+                flow_meter = NetflowMeter(
+                                FlowbasedFilter.__INPUT_Q, 
+                                FlowbasedFilter.__CONF['handler'],db_object,db2_object,db3_object)
+                
+                flow_meter.start()
+                #flow_meter.setDaemon(True)
+                #capture
+                FlowbasedFilter.captureAll()
+                 
+                
+                #FlowbasedFilter.captureAll()
+                #FlowbasedFilter.reconfigure(display,ifacei,ifaceo,label,db3_object)
+                #        #NetflowsStore.reportInExcel()
+                #FlowbasedFilter.printResourcesUsageStats()
+
+                
