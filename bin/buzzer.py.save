@@ -1,0 +1,185 @@
+from pexpect import *
+import pexpect
+import time 
+import sys
+import time
+import re
+import datetime
+import random
+import openpyxl as opyx
+import numpy as np
+from pathlib import Path
+
+child = None
+def write_db2(to_output):
+        """ Write the output to a file """
+        print("[ {:8s} ] extracting stats.".format("main"))
+        db_file  = "./mode_100_gateway_v2_results.xlsx"
+        ##db_file  = "./August/{}/mode_{}_{}_Extra_Final_results.xlsx".format(NEL, MODE, VER)
+        
+        path = Path(db_file)
+
+        wrk_book = None
+        sheet    = None
+        if path.exists():
+                wrk_book = opyx.load_workbook(db_file)
+                sheet    = wrk_book.create_sheet(f"NEL -- {CURR_ARGS}") #"NEL " + str(len(wrk_book.sheetnames) + 1))
+        else:
+                wrk_book = opyx.workbook.workbook.Workbook()
+                sheet    = wrk_book.active
+                sheet.title = f"NEL -- {CURR_ARGS}"
+
+        headers  = [ 'Statistics' ]
+        headers.extend(range(1, ITERATIONS + 1))
+        headers.extend(['Average', 'St. Deviation'])
+
+        sheet.append(headers)
+        nel_tm_row     = [ "NEL time" ]
+        cpu_s_row      = [ "CPU (s)"]
+        ram_row        = [ "RAM" ]
+        all_pkts_row   = [ "All packets" ]
+        if MODE > 0:
+                drppd_pkts_row = [ "dropped pkt" ]
+                norm_pkts_row  = [ "normalized pkt" ]
+                frwdd_pkts_row = [ "forwarded pkt" ]
+
+        nel_tm_data     = []
+        cpu_s_data      = []
+        ram_data        = []
+        all_pkts_data   = []
+        if MODE > 0:
+                drppd_pkts_data = []
+                norm_pkts_data  = []
+                frwdd_pkts_data = []
+
+        for test_data in to_output:
+                nel_tm_data.append(float(test_data['NEL time']))
+                cpu_s_data.append(float(test_data['CPU (s)']))
+                ram_data.append(float(test_data['RAM']))
+                all_pkts_data.append(float(test_data['All packets']))
+                if MODE > 0:
+                        drppd_pkts_data.append(float(test_data['dropped pkt']))
+                        norm_pkts_data.append(float(test_data['normalized pkt']))
+                        frwdd_pkts_data.append(float(test_data['forwarded pkt']))
+
+        nel_tm_data.extend([np.average(nel_tm_data), np.std(nel_tm_data)])
+        cpu_s_data.extend([np.average(cpu_s_data), np.std(cpu_s_data)])
+        ram_data.extend([np.average(ram_data), np.std(ram_data)])
+        all_pkts_data.extend([np.average(all_pkts_data), np.std(all_pkts_data)])
+        if MODE > 0:
+                drppd_pkts_data.extend([np.average(drppd_pkts_data), np.std(drppd_pkts_data)])
+                norm_pkts_data.extend([np.average(norm_pkts_data), np.std(norm_pkts_data)])
+                frwdd_pkts_data.extend([np.average(frwdd_pkts_data), np.std(frwdd_pkts_data)])
+
+        nel_tm_row.extend(nel_tm_data)
+        cpu_s_row.extend(cpu_s_data)
+        ram_row.extend(ram_data)
+        all_pkts_row.extend(all_pkts_data)
+        if MODE > 0:
+                drppd_pkts_row.extend(drppd_pkts_data)
+                norm_pkts_row.extend(norm_pkts_data)
+                frwdd_pkts_row.extend(frwdd_pkts_data)
+
+        # write row
+        sheet.append(nel_tm_row)
+        sheet.append(cpu_s_row)
+        sheet.append(ram_row)
+        sheet.append(all_pkts_row)
+        if MODE > 0:
+                sheet.append(drppd_pkts_row)
+                sheet.append(norm_pkts_row)
+                sheet.append(frwdd_pkts_row)
+
+
+        print('[ {:8s} ] saving to file'.format("main"))
+        wrk_book.save(db_file)
+        print('[ {:8s} ] done'.format("main"))
+
+def rcvr_stats(fname, test_count):
+
+        # STATS_DUMP = {}
+        with open(fname, "r") as logfile:
+            contents = logfile.read()
+            pattern = "([\d\.]+) seconds"
+            match = re.search(pattern, contents)
+            if match:
+                STATS_DUMP[test_count].update({"NEL time": match.group(1)})
+            else:
+                STATS_DUMP[test_count].update({"NEL time": match.group(1)})
+
+def fltr_stats(fname, test_count):
+        # m = MODE
+        # STATS_DUMP = {}
+        with open(fname, "r") as logfile:
+            contents = logfile.read()
+            # pattern = "## FILTER CPU TIME              : ([\d\.]+) sec\(s\)"
+            pattern = "FILTER CPU TIME\s+:(\d+\.{0,1}\d+)\ss"
+            match = re.search(pattern, contents)
+            if match:
+                STATS_DUMP[test_count].update({"CPU (s)": match.group(1)})
+            else:
+                STATS_DUMP[test_count].update({"CPU (s)": None})
+            # pattern = "## AVERAGE MEMORY USAGE         : ([\d\.]+) MBs"
+            pattern = "AVERAGE MEMORY USAGE\s+:(\d+\.{0,1}\d+)\smbs"
+            match = re.search(pattern, contents)
+            if match:
+                STATS_DUMP[test_count].update({"RAM": match.group(1)})
+            else:
+                STATS_DUMP[test_count].update({"RAM": None})
+            # pattern = "## ALL_PACKETS                  : ([\d]+)"
+            pattern = "ALL_PACKETS\s+:(\d+\.{0,1}\d*)"
+            match = re.search(pattern, contents)
+            if match:
+                STATS_DUMP[test_count].update({"All packets": match.group(1)})
+            else:
+                STATS_DUMP[test_count].update({"All packets": match.group(1)})
+            if MODE > 0:
+                # pattern = "## PACKETS_DROPPED              : ([\d]+)"
+                pattern = "PACKETS_DROPPED\s+:(\d+\.{0,1}\d*)"
+                match = re.search(pattern, contents)
+                if match:
+                    STATS_DUMP[test_count].update({"dropped pkt": match.group(1)})
+                else:
+                    STATS_DUMP[test_count].update({"dropped pkt": None})
+                # pattern = "## PACKETS_NORMALIZED           : ([\d]+)"
+                pattern = "PACKETS_NORMALIZED\s+:(\d+\.{0,1}\d*)"
+                match = re.search(pattern, contents)
+                if match:
+                    STATS_DUMP[test_count].update({"normalized pkt": match.group(1)})
+                else:
+                    STATS_DUMP[test_count].update({"normalized pkt": None})
+                # pattern = "## PACKETS_FORWARDED            : ([\d]+)"
+                pattern = "PACKETS_FORWARDED\s+:(\d+\.{0,1}\d*)"
+                match = re.search(pattern, contents)
+                if match:
+                    STATS_DUMP[test_count].update({"forwarded pkt": match.group(1)})
+                else:
+                    STATS_DUMP[test_count].update({"forwarded pkt": None})
+
+        # print(test_count, STATS_DUMP[test_count])
+if __name__ == '__main__':
+	try:
+		#child = pexpect.spawn('sudo mn --wifi --topo single,3 --controller remote,port=6633') ###sudo python adhoc15.py')
+	        child = pexpect.spawn('sudo python adhoc15.py')
+        	##(command_output, exitstatus) = run ('sudo python adhoc15.py', withexitstatus=1)
+	        ##print(command_output, exitstatus)
+	except pexpect.TIMEOUT:
+        	pass 
+        
+	##print(child.expect('mininet-wifi>'))
+	#while True:
+        #	try:
+	#        	p = child.expect('MEASUREMENT COMPLETE.*')
+	#                if(p):
+        #	             sys.exit(0)
+        #        	print child.before
+	#                print p
+	#	except pexpect.TIMEOUT:
+        #        	print("except ....")
+	#	        continue
+print child.before
+#time.sleep(5)
+#child.sendline("pingall")
+#child.sendline("sta1 ping -c 5 sta2")
+#time.sleep(4)
+#print child.after

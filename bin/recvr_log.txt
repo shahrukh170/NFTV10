@@ -1,0 +1,9 @@
+NEL: Implementation of a Network Environment Learning (NEL) Phase
+     for Network Covert Channel Research
+
+(C) 2017-2021 Steffen Wendzel (wendzel (at) hs-worms (dot) de), Network Security Research Group (NSRG), Worms University of Applied Sciences, WWW: https://www.wendzel.de
+Version 0.4.0
+
+receiver mode.
+Starting timer: 0.000
+154.923 seconds
