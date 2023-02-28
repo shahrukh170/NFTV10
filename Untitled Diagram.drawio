@@ -1,4 +1,4 @@
-<mxfile host="app.diagrams.net" modified="2023-02-28T08:05:32.441Z" agent="5.0 (Windows)" etag="q7V5q8RmJr6Yp29TujdF" version="20.8.23" type="github">
+<mxfile host="app.diagrams.net" modified="2023-02-28T08:08:29.099Z" agent="5.0 (Windows)" etag="J0H3_Znhlbp3DXKLaTPz" version="20.8.23" type="github">
   <diagram name="Page-1" id="fdulXALMbCzq9MuN1XzS">
     <mxGraphModel dx="1730" dy="462" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
@@ -15,7 +15,7 @@
         </mxCell>
         <mxCell id="ogDpy0lFk54aRrMLExYa-5" value="" style="shape=flexArrow;endArrow=classic;html=1;rounded=0;" edge="1" parent="1">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
-            <mxPoint x="400" y="1310" as="sourcePoint" />
+            <mxPoint x="400" y="1330" as="sourcePoint" />
             <mxPoint x="400" y="1390" as="targetPoint" />
           </mxGeometry>
         </mxCell>
@@ -40,10 +40,10 @@
             <mxPoint x="710" y="1630" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="ogDpy0lFk54aRrMLExYa-15" value="" style="shape=flexArrow;endArrow=classic;html=1;rounded=0;width=25;endSize=8.15;" edge="1" parent="1">
+        <mxCell id="ogDpy0lFk54aRrMLExYa-15" value="" style="shape=flexArrow;endArrow=classic;html=1;rounded=0;width=25;endSize=8.15;entryX=0.193;entryY=-0.02;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" target="ogDpy0lFk54aRrMLExYa-33">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
             <mxPoint x="430" y="2040" as="sourcePoint" />
-            <mxPoint x="430" y="2161.5833333333335" as="targetPoint" />
+            <mxPoint x="430" y="2120" as="targetPoint" />
             <Array as="points" />
           </mxGeometry>
         </mxCell>
@@ -77,18 +77,18 @@
         <mxCell id="ogDpy0lFk54aRrMLExYa-25" value="" style="shape=flexArrow;endArrow=classic;html=1;rounded=0;width=25;endSize=8.15;" edge="1" parent="1">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
             <mxPoint x="545" y="2040" as="sourcePoint" />
-            <mxPoint x="545" y="2161.5833333333335" as="targetPoint" />
+            <mxPoint x="545" y="2130" as="targetPoint" />
             <Array as="points" />
           </mxGeometry>
         </mxCell>
         <mxCell id="ogDpy0lFk54aRrMLExYa-26" value="" style="shape=flexArrow;endArrow=classic;html=1;rounded=0;width=25;endSize=8.15;" edge="1" parent="1">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
             <mxPoint x="665" y="2041" as="sourcePoint" />
-            <mxPoint x="665" y="2162.5833333333335" as="targetPoint" />
+            <mxPoint x="665" y="2130" as="targetPoint" />
             <Array as="points" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="ogDpy0lFk54aRrMLExYa-27" value="&amp;nbsp;CHECK&amp;nbsp; NETFLOW RECORD DATA&amp;nbsp; ( IPFIX ) FOR COVERT CHANNELS" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="ogDpy0lFk54aRrMLExYa-27" value="APPLY PERMISSIONS ( FORWARD / DROP / NORMALISE )" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" vertex="1" parent="1">
           <mxGeometry x="260" y="1988" width="640" height="50" as="geometry" />
         </mxCell>
         <mxCell id="ogDpy0lFk54aRrMLExYa-28" value="" style="shape=flexArrow;endArrow=classic;html=1;rounded=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" target="ogDpy0lFk54aRrMLExYa-23">
@@ -114,6 +114,12 @@
             <mxPoint x="707" y="1930" as="sourcePoint" />
             <mxPoint x="709" y="1976" as="targetPoint" />
           </mxGeometry>
+        </mxCell>
+        <mxCell id="ogDpy0lFk54aRrMLExYa-32" value="PACKET IN " style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="281" y="1277" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ogDpy0lFk54aRrMLExYa-33" value="PACKET OUT " style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="350" y="2130" width="400" height="50" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
